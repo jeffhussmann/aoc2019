@@ -1,26 +1,40 @@
 from collections import defaultdict
 from queue import Queue
 from threading import Thread, Event
+from enum import Enum
+from pathlib import Path
 
-opcodes = {
-        1: (3, 'ADD'),
-        2: (3, 'MULT'),
-        3: (1, 'INPUT'),
-        4: (1, 'OUTPUT'),
-        5: (2, 'JUMP IF TRUE'),
-        6: (2, 'JUMP IF TRUE'),
-        7: (3, 'LESS THAN'),
-        8: (3, 'EQUALS'),
-        9: (1, 'ADJUST RELATIVE BASE'),
-        99: (0, 'BREAK'),
-    }
+class Opcode(Enum):
+    ADD = 1
+    MULTIPLY = 2
+    INPUT = 3
+    OUTPUT = 4
+    JUMP_IF_TRUE = 5
+    JUMP_IF_FALSE = 6
+    LESS_THAN = 7
+    EQUALS = 8
+    ADJUST_RELATIVE_BASE = 9
+    BREAK = 99
+
+opcode_to_num_params = {
+    Opcode.ADD: 3,
+    Opcode.MULTIPLY: 3,
+    Opcode.INPUT: 1,
+    Opcode.OUTPUT: 1,
+    Opcode.JUMP_IF_TRUE: 2,
+    Opcode.JUMP_IF_FALSE: 2,
+    Opcode.LESS_THAN: 3,
+    Opcode.EQUALS: 3,
+    Opcode.ADJUST_RELATIVE_BASE: 1,
+    Opcode.BREAK: 0,
+}
 
 def parse_opcode(pc, instructions, relative_base):
     full_opcode = instructions[pc]
 
     opcode = full_opcode % 100
 
-    num_params, name = opcodes[opcode]
+    num_params = opcode_to_num_params[Opcode(opcode)]
 
     modes = [(full_opcode // 10**(2 + i)) % 10 for i in range(num_params)]
 
@@ -46,6 +60,9 @@ class FakeQueue():
         
     def __str__(self):
         return str(self.l)
+    
+    def empty(self):
+        return len(self.l) == 0
 
 def make_fake_queue(queue):
     if queue is None:
@@ -57,25 +74,42 @@ def make_fake_queue(queue):
     return queue
     
 class Program():
-    def __init__(self, name, fn, input_queue=None, output_queue=None, needs_input=None, memory_overrides=None):
-        self.name = name
-        
+    def __init__(self,
+                 instructions_source,
+                 input_queue=None,
+                 output_queue=None,
+                 needs_input=None,
+                 memory_overrides=None,
+                 pc=0,
+                 relative_base=0,
+                ):
         self.instructions = defaultdict(int)
-        for i, s in enumerate(open(fn).read().strip().split(',')):
-            self.instructions[i] = int(s)
+        
+        if isinstance(instructions_source, (str, Path)):
+            with open(instructions_source) as fh:
+                for i, s in enumerate(fh.read().strip().split(',')):
+                    self.instructions[i] = int(s)
+        elif isinstance(instructions_source, dict):
+            self.instructions.update(instructions_source)
+        elif isinstance(instructions_source, (list)):
+            for i, s in enumerate(instructions_source):
+                self.instructions[i] = s
             
         if memory_overrides is not None:
             for i, v in memory_overrides.items():
                 self.instructions[i] = v
             
-        self.pc = 0
-        self.relative_base = 0
+        self.pc = pc
+        self.relative_base = relative_base
             
         self.input_queue = make_fake_queue(input_queue)
         self.output_queue = make_fake_queue(output_queue)
         self.needs_input = needs_input
-
-    def run(self):
+        
+    def clone(self):
+        return Program(self.instructions.copy(), pc=self.pc, relative_base=self.relative_base)
+        
+    def run(self, until_input_needed=False):
         while True:
             opcode, args = parse_opcode(self.pc, self.instructions, self.relative_base)
 
@@ -88,10 +122,17 @@ class Program():
                 self.instructions[args[2]] = self.instructions[args[0]] * self.instructions[args[1]]
 
             elif opcode == 3:
-                self.needs_input.set()
+                if until_input_needed and self.input_queue.empty():
+                    return
+                
+                if self.needs_input is not None:
+                    self.needs_input.set()
+                
                 value = self.input_queue.get()
+                
                 if value == 'KILL':
-                    break
+                    return
+                
                 self.instructions[args[0]] = value
 
             elif opcode == 4:
@@ -124,13 +165,14 @@ class Program():
 
             elif opcode == 99:
                 self.needs_input.set()
-                break
+                return
 
             if advance:
                 self.pc += len(args) + 1
 
-def run_program(name, fn, input_queue, output_queue, needs_input, memory_overrides):
-    program = Program(name, fn, input_queue, output_queue, needs_input, memory_overrides)
+
+def run_program(fn, input_queue, output_queue, needs_input, memory_overrides):
+    program = Program(fn, input_queue, output_queue, needs_input, memory_overrides)
     program.run()
     
 def connect_processors(fn, names, connections):
@@ -147,7 +189,7 @@ def connect_processors(fn, names, connections):
     threads = {}
     
     for name in names:
-        args = (name, fn, input_queues[name], output_queues[name])
+        args = (fn, input_queues[name], output_queues[name])
         threads[name] = Thread(target=run_program, args=args)
         threads[name].start()
 
@@ -158,6 +200,6 @@ def standalone_processer(fn, memory_overrides=None):
     outputs = Queue()
     needs_input = Event()
     done = Event()
-    thread = Thread(target=run_program, args=('', fn, inputs, outputs, needs_input, memory_overrides))
+    thread = Thread(target=run_program, args=(fn, inputs, outputs, needs_input, memory_overrides))
     thread.start()
     return thread, inputs, outputs, needs_input
