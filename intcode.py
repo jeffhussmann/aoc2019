@@ -32,9 +32,9 @@ opcode_to_num_params = {
 def parse_opcode(pc, instructions, relative_base):
     full_opcode = instructions[pc]
 
-    opcode = full_opcode % 100
+    opcode = Opcode(full_opcode % 100)
 
-    num_params = opcode_to_num_params[Opcode(opcode)]
+    num_params = opcode_to_num_params[opcode]
 
     modes = [(full_opcode // 10**(2 + i)) % 10 for i in range(num_params)]
 
@@ -115,13 +115,13 @@ class Program():
 
             advance = True
 
-            if opcode == 1:      
+            if opcode == Opcode.ADD:      
                 self.instructions[args[2]] = self.instructions[args[0]] + self.instructions[args[1]]
 
-            elif opcode == 2:                   
+            elif opcode == Opcode.MULTIPLY:                   
                 self.instructions[args[2]] = self.instructions[args[0]] * self.instructions[args[1]]
 
-            elif opcode == 3:
+            elif opcode == Opcode.INPUT:
                 if until_input_needed and self.input_queue.empty():
                     return
                 
@@ -135,41 +135,53 @@ class Program():
                 
                 self.instructions[args[0]] = value
 
-            elif opcode == 4:
+            elif opcode == Opcode.OUTPUT:
                 self.output_queue.put(self.instructions[args[0]])
 
-            elif opcode == 5:               
+            elif opcode == Opcode.JUMP_IF_TRUE:               
                 if self.instructions[args[0]] != 0:
                     self.pc = self.instructions[args[1]]
                     advance = False
 
-            elif opcode == 6:        
+            elif opcode == Opcode.JUMP_IF_FALSE:        
                 if self.instructions[args[0]] == 0:
                     self.pc = self.instructions[args[1]]
                     advance = False
 
-            elif opcode == 7:
+            elif opcode == Opcode.LESS_THAN:
                 if self.instructions[args[0]] < self.instructions[args[1]]:
                     self.instructions[args[2]] = 1
                 else:
                     self.instructions[args[2]] = 0
 
-            elif opcode == 8:
+            elif opcode == Opcode.EQUALS:
                 if self.instructions[args[0]] == self.instructions[args[1]]:
                     self.instructions[args[2]] = 1
                 else:
                     self.instructions[args[2]] = 0
                     
-            elif opcode == 9:
+            elif opcode == Opcode.ADJUST_RELATIVE_BASE:
                 self.relative_base += self.instructions[args[0]]
 
-            elif opcode == 99:
-                self.needs_input.set()
+            elif opcode == Opcode.BREAK:
+                if self.needs_input is not None:
+                    self.needs_input.set()
                 return
 
             if advance:
                 self.pc += len(args) + 1
 
+    def convert_inputs_to_outputs(self, inputs):
+        for inp in inputs:
+            self.input_queue.put(inp)
+
+        self.run(until_input_needed=True)
+
+        outputs = []
+        while not self.output_queue.empty():
+            outputs.append(self.output_queue.get())
+
+        return outputs
 
 def run_program(fn, input_queue, output_queue, needs_input, memory_overrides):
     program = Program(fn, input_queue, output_queue, needs_input, memory_overrides)
