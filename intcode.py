@@ -48,21 +48,21 @@ def parse_opcode(pc, instructions, relative_base):
 
     return opcode, addresses
 
-class FakeQueue():
-    def __init__(self, l):
-        self.l = l
+class FakeQueue:
+    def __init__(self, vals):
+        self.vals = vals
         
     def get(self):
-        return self.l.pop(0)
+        return self.vals.pop(0)
     
     def put(self, v):
-        self.l.append(v)
+        self.vals.append(v)
         
     def __str__(self):
-        return str(self.l)
+        return str(self.vals)
     
     def empty(self):
-        return len(self.l) == 0
+        return len(self.vals) == 0
 
 def make_fake_queue(queue):
     if queue is None:
@@ -73,7 +73,7 @@ def make_fake_queue(queue):
         
     return queue
     
-class Program():
+class Program:
     def __init__(self,
                  instructions_source,
                  input_queue=None,
