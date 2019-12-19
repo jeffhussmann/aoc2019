@@ -29,25 +29,6 @@ opcode_to_num_params = {
     Opcode.BREAK: 0,
 }
 
-def parse_opcode(pc, instructions, relative_base):
-    full_opcode = instructions[pc]
-
-    opcode = Opcode(full_opcode % 100)
-
-    num_params = opcode_to_num_params[opcode]
-
-    modes = [(full_opcode // 10**(2 + i)) % 10 for i in range(num_params)]
-
-    addresses = list(range(pc + 1, pc + 1 + num_params))
-
-    for i, m in enumerate(modes):
-        if m == 0:
-            addresses[i] = instructions[addresses[i]]
-        elif m == 2:
-            addresses[i] = instructions[addresses[i]] + relative_base
-
-    return opcode, addresses
-
 class FakeQueue:
     def __init__(self, vals):
         self.vals = vals
@@ -105,13 +86,32 @@ class Program:
         self.input_queue = make_fake_queue(input_queue)
         self.output_queue = make_fake_queue(output_queue)
         self.needs_input = needs_input
-        
+
+    def parse_next_opcode(self):
+        full_opcode = self.instructions[self.pc]
+
+        opcode = Opcode(full_opcode % 100)
+
+        num_params = opcode_to_num_params[opcode]
+
+        modes = [(full_opcode // 10**(2 + i)) % 10 for i in range(num_params)]
+
+        addresses = list(range(self.pc + 1, self.pc + 1 + num_params))
+
+        for i, m in enumerate(modes):
+            if m == 0:
+                addresses[i] = self.instructions[addresses[i]]
+            elif m == 2:
+                addresses[i] = self.instructions[addresses[i]] + self.relative_base
+
+        return opcode, addresses
+
     def clone(self):
         return Program(self.instructions.copy(), pc=self.pc, relative_base=self.relative_base)
         
     def run(self, until_input_needed=False):
         while True:
-            opcode, args = parse_opcode(self.pc, self.instructions, self.relative_base)
+            opcode, args = self.parse_next_opcode()
 
             advance = True
 
